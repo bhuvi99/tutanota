@@ -1,10 +1,9 @@
 package de.tutao.tutanota
 
-import android.app.Activity
-import android.app.KeyguardManager
-import android.content.Context
 import android.content.SharedPreferences
+import android.hardware.fingerprint.FingerprintManager
 import android.os.Build
+import android.os.CancellationSignal
 import android.preference.PreferenceManager
 import android.security.KeyPairGeneratorSpec
 import android.security.keystore.KeyGenParameterSpec
@@ -158,12 +157,7 @@ internal class CredentialsHandler(private val mainActivity: MainActivity) {
         if (atLeastMarshmallow()) {
             val keyStore = KeyStore.getInstance("AndroidKeyStore")
             keyStore.load(null)
-            try {
-                return keyStore.getKey(KEY_NAME, null) as SecretKey? ?: return createKey()
-            } catch (e: UserNotAuthenticatedException) {
-                authenticate().await()
-                return getSymmetricKey()
-            }
+            return keyStore.getKey(KEY_NAME, null) as SecretKey? ?: return createKey()
         } else {
             val encSymmetricKey = prefs.getString(SYMMETRIC_KEY_PREF_KEY, null)
                     ?.let { Utils.base64ToBytes(it) }
@@ -179,20 +173,29 @@ internal class CredentialsHandler(private val mainActivity: MainActivity) {
     private fun atLeastMarshmallow() = Build.VERSION.SDK_INT > Build.VERSION_CODES.M
 
 
+    @Suppress("DEPRECATION")
     @RequiresApi(Build.VERSION_CODES.M)
     private fun authenticate(): Deferred<Any> {
-        val mKeyguardManager = this.mainActivity.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-
-        val intent = mKeyguardManager.createConfirmDeviceCredentialIntent(null, null)
+        val fingerprintManager = mainActivity.getSystemService(FingerprintManager::class.java)
         val deferred = CompletableDeferred<Any>()
+        fingerprintManager.authenticate(
+                null,
+                CancellationSignal(),
+                0,
+                object : FingerprintManager.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: FingerprintManager.AuthenticationResult?) {
+                        deferred.complete(true)
+                    }
 
-        this.mainActivity.startActivityForResult(intent).then { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
-                deferred.complete(true)
-            } else {
-                deferred.completeExceptionally(UserNotAuthenticatedException())
-            }
-        }
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                        deferred.completeExceptionally(java.lang.Exception(errString.toString()))
+                    }
+
+                    override fun onAuthenticationFailed() {
+                        deferred.completeExceptionally(Exception("authentication failed"))
+                    }
+                },
+                null)
         return deferred
     }
 
@@ -206,14 +209,13 @@ internal class CredentialsHandler(private val mainActivity: MainActivity) {
 }
 
 class CipherWrapper(transformation: String) {
+    val cipher: Cipher = Cipher.getInstance(transformation)
 
     companion object {
         const val TRANSFORMATION_ASYMMETRIC = "RSA/ECB/PKCS1Padding"
         const val TRANSFORMATION_SYMMETRIC = "AES/CBC/PKCS7Padding"
         private const val IV_BYTE_SIZE = 16
     }
-
-    val cipher: Cipher = Cipher.getInstance(transformation)
 
     fun encrypt(data: ByteArray, key: SecretKey?): ByteArray {
         val iv = ByteArray(IV_BYTE_SIZE)
