@@ -122,7 +122,7 @@ public class MainActivity extends Activity {
         credentialsHandler.putCredentialsInterop(true, Collections.singletonList(credentials))
                 .then((DonePipe<Object, List<TutanotaCredentials>, Object, Object>) result -> credentialsHandler.getCredentialsInterop())
                 .then(result -> {
-                    Log.d(TAG, "CREDENTIALS: " + result.m);
+                    Log.d(TAG, "CREDENTIALS: " + result.get(0).toJSON());
                 });
 
         webView = new WebView(this);

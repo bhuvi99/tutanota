@@ -6,35 +6,34 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import android.preference.PreferenceManager
+import android.security.KeyPairGeneratorSpec
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.UserNotAuthenticatedException
 import android.support.annotation.RequiresApi
-import de.tutao.tutanota.Utils.base64ToBytes
 import de.tutao.tutanota.Utils.bytesToBase64
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import org.jdeferred.Promise
 import org.jdeferred.impl.DeferredObject
 import org.json.JSONArray
-import java.nio.charset.Charset
-import java.security.KeyStore
+import java.math.BigInteger
+import java.security.*
+import java.util.*
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.IvParameterSpec
+import javax.security.auth.x500.X500Principal
 
 internal class CredentialsHandler(private val mainActivity: MainActivity) {
-    private var iv: ByteArray? = null
 
     suspend fun getCredentials(): List<TutanotaCredentials> {
         val prefString = prefs.getString(CREDENTIALS_PREF_KEY, null)
                 ?: return listOf()
-        val isEncrypted = prefs.getBoolean(ENCRYPTED_PREF_KEY, false)
-        val decryptedString = if (isEncrypted && Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
-            tryDecrypt(base64ToBytes(prefString))
-        } else {
-            base64ToBytes(prefString)
-        }.toString(Charset.forName("UTF-8"))
+        val decryptedString = tryDecrypt(Utils.base64ToBytes(prefString)).toString(Charsets.UTF_8)
 
         val jsonArray = JSONArray(decryptedString)
         val credentialsArray = mutableListOf<TutanotaCredentials>()
@@ -64,85 +63,123 @@ internal class CredentialsHandler(private val mainActivity: MainActivity) {
 
     suspend fun putCredentials(encrypted: Boolean, credentials: List<TutanotaCredentials>) {
         val jsonArray = JSONArray(credentials.map { credential -> credential.toJSON() })
-        val stringToStore = if (encrypted && Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
+        val stringToStore = if (encrypted && atLeastMarshmallow()) {
             bytesToBase64(tryEncrypt(jsonArray.toString().toByteArray()))
         } else {
             bytesToBase64(jsonArray.toString().toByteArray())
         }
-        prefs.edit()
-                .putString(CREDENTIALS_PREF_KEY, stringToStore)
-                .putBoolean(ENCRYPTED_PREF_KEY, encrypted)
-                .apply()
+        prefs.edit().putString(CREDENTIALS_PREF_KEY, stringToStore).apply()
     }
 
     private val prefs: SharedPreferences =
             PreferenceManager.getDefaultSharedPreferences(this.mainActivity)
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    private fun createKey() {
+    private fun createKey(): SecretKey {
         // Generate a key to decrypt payment credentials, tokens, etc.
         // This will most likely be a registration step for the user when they are setting up your app.
 
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
-        val keyGenerator = KeyGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
 
         // Set the alias of the entry in Android KeyStore where the key will appear
         // and the constrains (purposes) in the constructor of the Builder
+        if (atLeastMarshmallow()) {
+            val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+            keyGenerator.init(KeyGenParameterSpec.Builder(KEY_NAME, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                    .setRandomizedEncryptionRequired(false)
+                    .setUserAuthenticationRequired(true)
+                    .setUserAuthenticationValidityDurationSeconds(10)
+                    .build())
+            return keyGenerator.generateKey()
+        } else {
+            val keyGenerator = KeyPairGenerator.getInstance("RSA", "AndroidKeyStore")
+            @Suppress("DEPRECATION")
+            keyGenerator.initialize(KeyPairGeneratorSpec.Builder(mainActivity)
+                    .setAlias(KEY_NAME)
+                    .setSerialNumber(BigInteger.ONE)
+                    .setStartDate(Date())
+                    .setEndDate(Calendar.getInstance().run { add(Calendar.YEAR, 100); time })
+                    .setSubject(X500Principal("CN=$KEY_NAME CA Certificate")).build())
 
-        keyGenerator.init(KeyGenParameterSpec.Builder(KEY_NAME,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-                .setUserAuthenticationRequired(true)
-                // Require that the user has unlocked in the last 30 seconds
-                .setUserAuthenticationValidityDurationSeconds(30)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
-                .build())
+            val keyPair = keyGenerator.generateKeyPair()
 
-        keyGenerator.generateKey()
-    }
+            val aesKey = generateAesKey()
+            val encSymmetricKey = CipherWrapper(CipherWrapper.TRANSFORMATION_ASYMMETRIC)
+                    .wrapKey(aesKey, keyPair.public)
+            prefs.edit()
+                    .putString(SYMMETRIC_KEY_PREF_KEY, Utils.bytesToBase64(encSymmetricKey))
+                    .apply()
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    suspend fun tryEncrypt(bytes: ByteArray): ByteArray {
-        val cipher = getCipher(null)
-        this.iv = cipher.iv
-        return cipher.doFinal(bytes)
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    suspend fun tryDecrypt(bytes: ByteArray): ByteArray {
-        val cipher = getCipher(this.iv)
-        return cipher.doFinal(bytes)
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    private suspend fun getCipher(iv: ByteArray?): Cipher {
-        try {
-            val keyStore = KeyStore.getInstance("AndroidKeyStore")
-            keyStore.load(null)
-            var secretKey: SecretKey? = keyStore.getKey(KEY_NAME, null) as SecretKey?
-            if (secretKey == null) {
-                this.createKey()
-                secretKey = keyStore.getKey(KEY_NAME, null) as SecretKey
-            }
-
-            val cipher = Cipher.getInstance(
-                    KeyProperties.KEY_ALGORITHM_AES + "/" + KeyProperties.BLOCK_MODE_CBC + "/"
-                            + KeyProperties.ENCRYPTION_PADDING_PKCS7)
-            if (iv == null) {
-                cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-            } else {
-                cipher.init(Cipher.DECRYPT_MODE, secretKey, IvParameterSpec(iv))
-            }
-            return cipher
-        } catch (e: UserNotAuthenticatedException) {
-            authenticate().await()
-            return getCipher(iv)
+            return aesKey
         }
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
+    suspend fun tryEncrypt(bytes: ByteArray): ByteArray {
+        return try {
+            val key = getSymmetricKey()
+            CipherWrapper(CipherWrapper.TRANSFORMATION_SYMMETRIC).encrypt(bytes, key)
+        } catch (e: Exception) {
+            if (atLeastMarshmallow() && e is UserNotAuthenticatedException) {
+                authenticate().join()
+                tryEncrypt(bytes)
+            } else {
+                throw e
+            }
+        }
+    }
+
+    suspend fun tryDecrypt(bytes: ByteArray): ByteArray {
+        return try {
+            val key = getSymmetricKey()
+            CipherWrapper(CipherWrapper.TRANSFORMATION_SYMMETRIC).decrypt(bytes, key)
+        } catch (e: Exception) {
+            if (atLeastMarshmallow() && e is UserNotAuthenticatedException) {
+                authenticate().join()
+                tryDecrypt(bytes)
+            } else {
+                throw e
+            }
+        }
+    }
+
+
+    private fun getKeyPair(): KeyPair {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+
+        val publicKey = keyStore.getCertificate(KEY_NAME).publicKey
+        val privateKey = keyStore.getKey(KEY_NAME, null) as PrivateKey
+        return KeyPair(publicKey, privateKey)
+    }
+
+    private suspend fun getSymmetricKey(): SecretKey {
+        if (atLeastMarshmallow()) {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            try {
+                return keyStore.getKey(KEY_NAME, null) as SecretKey? ?: return createKey()
+            } catch (e: UserNotAuthenticatedException) {
+                authenticate().await()
+                return getSymmetricKey()
+            }
+        } else {
+            val encSymmetricKey = prefs.getString(SYMMETRIC_KEY_PREF_KEY, null)
+                    ?.let { Utils.base64ToBytes(it) }
+            if (encSymmetricKey == null) {
+                createKey()
+                return getSymmetricKey()
+            }
+            return CipherWrapper(CipherWrapper.TRANSFORMATION_ASYMMETRIC)
+                    .unWrapKey(encSymmetricKey, getKeyPair().private)
+        }
+    }
+
+    private fun atLeastMarshmallow() = Build.VERSION.SDK_INT > Build.VERSION_CODES.M
+
+
+    @RequiresApi(Build.VERSION_CODES.M)
     private fun authenticate(): Deferred<Any> {
         val mKeyguardManager = this.mainActivity.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
 
@@ -159,9 +196,47 @@ internal class CredentialsHandler(private val mainActivity: MainActivity) {
         return deferred
     }
 
+    private fun generateAesKey(): SecretKey = KeyGenerator.getInstance("AES").generateKey()
+
     companion object {
         private const val KEY_NAME = "TUTCREDENTIALS"
         private const val CREDENTIALS_PREF_KEY = "credentials"
-        private const val ENCRYPTED_PREF_KEY = "encrypted"
+        private const val SYMMETRIC_KEY_PREF_KEY = "symmetricKey"
+    }
+}
+
+class CipherWrapper(transformation: String) {
+
+    companion object {
+        const val TRANSFORMATION_ASYMMETRIC = "RSA/ECB/PKCS1Padding"
+        const val TRANSFORMATION_SYMMETRIC = "AES/CBC/PKCS7Padding"
+        private const val IV_BYTE_SIZE = 16
+    }
+
+    val cipher: Cipher = Cipher.getInstance(transformation)
+
+    fun encrypt(data: ByteArray, key: SecretKey?): ByteArray {
+        val iv = ByteArray(IV_BYTE_SIZE)
+        SecureRandom().nextBytes(iv)
+        cipher.init(Cipher.ENCRYPT_MODE, key, IvParameterSpec(iv))
+        val encrypted = cipher.doFinal(data)
+        return iv + encrypted
+    }
+
+    fun decrypt(data: ByteArray, key: Key?): ByteArray {
+        val iv = data.copyOfRange(0, IV_BYTE_SIZE)
+        val msg = data.copyOfRange(IV_BYTE_SIZE, data.size)
+        cipher.init(Cipher.DECRYPT_MODE, key, IvParameterSpec(iv))
+        return cipher.doFinal(msg)
+    }
+
+    fun wrapKey(keyToBeWrapped: SecretKey, keyToWrapWith: PublicKey): ByteArray {
+        cipher.init(Cipher.WRAP_MODE, keyToWrapWith)
+        return cipher.wrap(keyToBeWrapped)
+    }
+
+    fun unWrapKey(wrappedKeyData: ByteArray, keyToUnWrapWith: PrivateKey): SecretKey {
+        cipher.init(Cipher.UNWRAP_MODE, keyToUnWrapWith)
+        return cipher.unwrap(wrappedKeyData, "AES", Cipher.SECRET_KEY) as SecretKey
     }
 }
