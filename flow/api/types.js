@@ -155,11 +155,15 @@ type NativeRequestType = 'init'
 	| 'changeTheme'
 	| 'saveBlob'
 	| 'putFileIntoDownloads'
+	| 'putIntoSecureStorage'
+	| 'getFromSecureStorage'
 type JsRequestType = 'createMailEditor'
 	| 'handleBackPress'
 	| 'showAlertDialog'
 	| 'openMailbox'
 	| 'keyboardSizeChanged'
+	| 'showFingerprintDialog'
+	| 'closeFingerprintDialog'
 
 
 type Callback<T> = (err: ?Error, data?: T) => void

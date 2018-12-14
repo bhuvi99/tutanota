@@ -7,23 +7,18 @@ import android.net.Uri
 import android.os.Build
 import android.util.Log
 import android.webkit.JavascriptInterface
-
+import de.tutao.tutanota.push.PushNotificationService
+import de.tutao.tutanota.push.SseStorage
+import kotlinx.coroutines.*
 import org.jdeferred.Promise
 import org.jdeferred.impl.DeferredObject
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
-
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
-import java.util.ArrayList
-import java.util.HashMap
-import java.util.Objects
-
-import de.tutao.tutanota.push.PushNotificationService
-import de.tutao.tutanota.push.SseStorage
-import kotlinx.coroutines.*
+import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -34,6 +29,7 @@ class Native internal constructor(private val activity: MainActivity) {
     private val files = FileUtil(activity)
     private val contact = Contact(activity)
     private val sseStorage = SseStorage(activity)
+    private val secureStorage = SecureStorage(activity)
     private val queue = HashMap<String, kotlinx.coroutines.CompletableDeferred<JSONObject>>()
     private val coroutineScope = CoroutineScope(Dispatchers.Default + Job())
 
@@ -55,18 +51,21 @@ class Native internal constructor(private val activity: MainActivity) {
      */
     @JavascriptInterface
     operator fun invoke(msg: String) {
-        // TODO: check what happens with requestError
         coroutineScope.launch {
             try {
                 val request = JSONObject(msg)
                 if (request.get("type") == "response") {
                     val promise = queue.remove(request.get("id"))
                     promise!!.complete(request)
+                } else if (request.getString("type") == "requestError") {
+                    val promise = queue.remove(request.get("id"))
+                    promise!!.completeExceptionally(Error(request.toString()))
                 } else {
                     try {
                         val result = invokeMethod(request.getString("type"), request.getJSONArray("args"))
                         sendResponse(request, result)
                     } catch (e: Exception) {
+                        Log.e(TAG, "Failed request", e)
                         sendErrorResponse(request, e)
                     }
                 }
@@ -118,6 +117,13 @@ class Native internal constructor(private val activity: MainActivity) {
                 // no response expected
             }
         }
+    }
+
+    val authCallback: AuthCallback = { toShow ->
+        sendRequest(
+                if (toShow) JsRequest.showFingerprintDialog else JsRequest.closeFingerprintDialog,
+                arrayOf()
+        )
     }
 
     private suspend fun invokeMethod(method: String, args: JSONArray): Any? {
@@ -183,6 +189,8 @@ class Native internal constructor(private val activity: MainActivity) {
                 val path = args.getString(0)
                 files.putToDownloadFolder(path).toDeferred().await()
             }
+            "putIntoSecureStorage" -> secureStorage.put(args.getString(0), args.getString(1), authCallback)
+            "getFromSecureStorage" -> secureStorage.get(args.getString(0), authCallback)
             else -> throw Exception("unsupported method: $method")
         }
     }

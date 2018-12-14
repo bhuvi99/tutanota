@@ -86,6 +86,16 @@ class NativeWrapper {
 					return _asyncImport('src/misc/WindowFacade.js').then(module => {
 						return module.windowFacade.onKeyboardSizeChanged(Number(msg.args[0]))
 					})
+				},
+				showFingerprintDialog: (): Promise<void> => {
+					return _asyncImport('src/login/FingerprintDialog.js').then(module => {
+						module.show()
+					})
+				},
+				closeFingerprintDialog: (): Promise<void> => {
+					return _asyncImport('src/login/FingerprintDialog.js').then(module => {
+						module.close()
+					})
 				}
 			})
 			this.invokeNative(new Request("init", [])).then(platformId => {

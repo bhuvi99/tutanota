@@ -1,11 +1,9 @@
 package de.tutao.tutanota
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.hardware.fingerprint.FingerprintManager
 import android.os.Build
 import android.os.CancellationSignal
-import android.preference.PreferenceManager
 import android.security.KeyPairGeneratorSpec
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -14,10 +12,6 @@ import android.support.annotation.RequiresApi
 import de.tutao.tutanota.Utils.bytesToBase64
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
-import org.jdeferred.Promise
-import org.jdeferred.impl.DeferredObject
 import java.math.BigInteger
 import java.security.*
 import java.util.*
@@ -28,37 +22,24 @@ import javax.crypto.spec.IvParameterSpec
 import javax.security.auth.x500.X500Principal
 
 typealias StorageId = String
+typealias AuthCallback = (open: Boolean) -> Unit
 
 internal class SecureStorage(private val mainActivity: MainActivity) {
 
-    suspend fun getFromSecureStorage(id: StorageId): String? {
-        val prefString = prefs.getString(id, null) ?: return null
-        return tryDecrypt(Utils.base64ToBytes(prefString)).toString(Charsets.UTF_8)
+    suspend fun get(id: StorageId, authCallback: AuthCallback): String? {
+        val prefString = prefs.value.getString(id, null) ?: return null
+
+        return tryDecrypt(Utils.base64ToBytes(prefString), authCallback).toString(Charsets.UTF_8)
     }
 
-    fun getFromSecureStorageInterop(id: StorageId): Promise<String?, Any, Any> {
-        val deferred = DeferredObject<String?, Any, Any>()
-        GlobalScope.launch {
-            val credentials = getFromSecureStorage(id)
-            deferred.resolve(credentials)
-        }
-        return deferred
+    suspend fun put(id: StorageId, value: String, authCallback: AuthCallback) {
+        val encryptedData = tryEncrypt(value.toByteArray(), authCallback)
+        prefs.value.edit().putString(id, bytesToBase64(encryptedData)).apply()
     }
 
-    fun putIntoSecureStorageInterop(id: StorageId, value: String): Promise<Any, Any, Any> {
-        val deferred = DeferredObject<Any, Any, Any>()
-        GlobalScope.launch {
-            putIntoSecureStorage(id, value)
-            deferred.resolve(Unit)
-        }
-        return deferred
+    private val prefs = lazy {
+        this.mainActivity.getSharedPreferences("SECURE_STORAGE", Context.MODE_PRIVATE)
     }
-
-    suspend fun putIntoSecureStorage(id: StorageId, value: String) {
-        prefs.edit().putString(id, bytesToBase64(tryEncrypt(value.toByteArray()))).apply()
-    }
-
-    private val prefs: SharedPreferences = this.mainActivity.getSharedPreferences("SECURE_STORAGE", Context.MODE_PRIVATE)
 
     private fun createKey(): SecretKey {
         // Generate a key to decrypt payment credentials, tokens, etc.
@@ -94,7 +75,7 @@ internal class SecureStorage(private val mainActivity: MainActivity) {
             val aesKey = generateAesKey()
             val encSymmetricKey = CipherWrapper(CipherWrapper.TRANSFORMATION_ASYMMETRIC)
                     .wrapKey(aesKey, keyPair.public)
-            prefs.edit()
+            prefs.value.edit()
                     .putString(SYMMETRIC_KEY_PREF_KEY, Utils.bytesToBase64(encSymmetricKey))
                     .apply()
 
@@ -102,29 +83,35 @@ internal class SecureStorage(private val mainActivity: MainActivity) {
         }
     }
 
-    suspend fun tryEncrypt(bytes: ByteArray): ByteArray {
+    suspend fun tryEncrypt(bytes: ByteArray, authCallback: AuthCallback): ByteArray {
         return try {
             val key = getSymmetricKey()
             CipherWrapper(CipherWrapper.TRANSFORMATION_SYMMETRIC).encrypt(bytes, key)
         } catch (e: Exception) {
             if (atLeastMarshmallow() && e is UserNotAuthenticatedException) {
+                authCallback(true)
                 authenticate().join()
-                tryEncrypt(bytes)
+                authCallback(false)
+                tryEncrypt(bytes, authCallback)
             } else {
+                // TODO: handle auth failures?
                 throw e
             }
         }
     }
 
-    suspend fun tryDecrypt(bytes: ByteArray): ByteArray {
+    suspend fun tryDecrypt(bytes: ByteArray, authCallback: AuthCallback): ByteArray {
         return try {
             val key = getSymmetricKey()
             CipherWrapper(CipherWrapper.TRANSFORMATION_SYMMETRIC).decrypt(bytes, key)
         } catch (e: Exception) {
             if (atLeastMarshmallow() && e is UserNotAuthenticatedException) {
+                authCallback(true)
                 authenticate().join()
-                tryDecrypt(bytes)
+                authCallback(false)
+                tryDecrypt(bytes, authCallback)
             } else {
+                // TODO: handle auth failures?
                 throw e
             }
         }
@@ -146,7 +133,7 @@ internal class SecureStorage(private val mainActivity: MainActivity) {
             keyStore.load(null)
             return keyStore.getKey(KEY_NAME, null) as SecretKey? ?: return createKey()
         } else {
-            val encSymmetricKey = prefs.getString(SYMMETRIC_KEY_PREF_KEY, null)
+            val encSymmetricKey = prefs.value.getString(SYMMETRIC_KEY_PREF_KEY, null)
                     ?.let { Utils.base64ToBytes(it) }
             if (encSymmetricKey == null) {
                 createKey()

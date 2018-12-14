@@ -114,7 +114,9 @@ export class LoginViewController implements ILoginViewController {
 					                                        })
 					                                        .catch(NotFoundError, e => console.log("session already deleted"))
 				                           }
-			                           }).finally(() => secondFactorHandler.closeWaitingForSecondFactorDialog())
+			                           })
+			                           .then(() => deviceConfig.store())
+			                           .finally(() => secondFactorHandler.closeWaitingForSecondFactorDialog())
 			this._handleSession(showProgressDialog("login_msg", this._loginPromise), () => {
 			})
 		}

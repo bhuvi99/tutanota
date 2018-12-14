@@ -324,9 +324,9 @@ export class LoginView {
 					    .finally(() => localStorage.removeItem("config")))
 			}
 
-		}/* else if (isApp()) {
-			promise = deviceConfig.loadAppCredentials()
-		}*/
+		} else if (isApp()) {
+			promise = deviceConfig._loadCredentialsFromNative()
+		}
 		promise.then(() => {
 			if ((args.loginWith || args.userId) && !(args.loginWith && deviceConfig.get(args.loginWith) ||
 				args.userId && deviceConfig.getByUserId(args.userId))) {

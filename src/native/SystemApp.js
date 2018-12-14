@@ -19,3 +19,11 @@ export function reloadNative(queryParameters: string): Promise<void> {
 export function changeColorTheme(theme: string): Promise<void> {
 	return nativeApp.invokeNative(new Request('changeTheme', [theme]))
 }
+
+export function putIntoSecureStorage(id: string, value: string): Promise<void> {
+	return nativeApp.invokeNative(new Request('putIntoSecureStorage', [id, value]))
+}
+
+export function getFromSecureStorage(id: string): Promise<?string> {
+	return nativeApp.invokeNative(new Request('getFromSecureStorage', [id]))
+}

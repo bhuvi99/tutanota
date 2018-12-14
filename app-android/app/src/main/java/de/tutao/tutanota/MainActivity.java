@@ -78,14 +78,6 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         this.setupPushNotifications();
-        SecureStorage credentialsHandler = new SecureStorage(this);
-        String credentials = "credentials";
-
-        credentialsHandler.putIntoSecureStorageInterop("THIS IS A KEY", credentials)
-                .then((DonePipe<Object, String, Object, Object>) result -> credentialsHandler.getFromSecureStorageInterop("THIS IS A KEY"))
-                .then(result -> {
-                    Log.d(TAG, "CREDENTIALS: " + result);
-                });
 
         webView = new WebView(this);
         webView.setBackgroundColor(getResources().getColor(android.R.color.transparent));

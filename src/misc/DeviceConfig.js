@@ -1,12 +1,15 @@
 // @flow
-import {assertMainOrNodeBoot} from "../api/Env"
+import {assertMainOrNodeBoot, isApp} from "../api/Env"
 import {themeId} from "../gui/theme"
 import {client} from "./ClientDetector"
+import {getFromSecureStorage, putIntoSecureStorage} from "../native/SystemApp"
+import {nativeApp} from "../native/NativeWrapper"
 
 assertMainOrNodeBoot()
 
 const ConfigVersion = 2
 const LocalStorageKey = 'tutanotaConfig'
+const secureStorageKey = 'tutanotaCredentials'
 
 /**
  * Device config for internal user auto login. Only one config per device is stored.
@@ -34,6 +37,19 @@ class DeviceConfig {
 		}
 	}
 
+	_loadCredentialsFromNative(): Promise<Credentials[]> {
+		return nativeApp
+			.initialized()
+			.then(() => getFromSecureStorage(secureStorageKey))
+			.then(json => {
+				if (json != null) {
+					this._credentials = JSON.parse(json)
+					return this._credentials
+				}
+				return []
+			})
+	}
+
 	getStoredAddresses(): string[] {
 		return this._credentials.map(c => c.mailAddress)
 	}
@@ -53,25 +69,29 @@ class DeviceConfig {
 		} else {
 			this._credentials.push(credentials)
 		}
-		this._store()
 	}
 
 	delete(mailAddress: string) {
 		this._credentials.splice(this._credentials.findIndex(c => c.mailAddress === mailAddress), 1)
-		this._store()
 	}
 
 	deleteByAccessToken(accessToken: string) {
 		this._credentials.splice(this._credentials.findIndex(c => c.accessToken === accessToken), 1)
-		this._store()
 	}
 
-	_store() {
-		try {
-			localStorage.setItem(LocalStorageKey, JSON.stringify(this))
-		} catch (e) {
-			// may occur in Safari < 11 in incognito mode because it throws a QuotaExceededError
-			console.log("could not store config", e)
+	store(): Promise<void> {
+		if (isApp()) {
+			return putIntoSecureStorage(secureStorageKey, JSON.stringify(this._credentials)).then(() => {
+				localStorage.setItem(LocalStorageKey, JSON.stringify({_version: this._version, _theme: this._theme}))
+			})
+		} else {
+			try {
+				localStorage.setItem(LocalStorageKey, JSON.stringify(this))
+			} catch (e) {
+				// may occur in Safari < 11 in incognito mode because it throws a QuotaExceededError
+				console.log("could not store config", e)
+			}
+			return Promise.resolve()
 		}
 	}
 
@@ -93,7 +113,8 @@ class DeviceConfig {
 		if (this._theme !== theme) {
 			this._theme = theme
 			themeId(theme)
-			this._store()
+			// TODO: save only localStorage things here
+			this.store()
 		}
 	}
 }
