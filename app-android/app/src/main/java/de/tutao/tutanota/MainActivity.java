@@ -2,10 +2,7 @@ package de.tutao.tutanota;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.KeyguardManager;
 import android.app.job.JobInfo;
 import android.app.job.JobScheduler;
 import android.content.ActivityNotFoundException;
@@ -24,32 +21,22 @@ import android.os.Bundle;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
-import android.security.keystore.KeyGenParameterSpec;
-import android.security.keystore.KeyPermanentlyInvalidatedException;
-import android.security.keystore.KeyProperties;
-import android.security.keystore.UserNotAuthenticatedException;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.annotation.RequiresApi;
 import android.support.annotation.RequiresPermission;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.ContextMenu;
-import android.view.KeyEvent;
 import android.view.View;
 import android.webkit.CookieManager;
-import android.webkit.WebResourceError;
-import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import org.jdeferred.Deferred;
-import org.jdeferred.DoneCallback;
-import org.jdeferred.DoneFilter;
 import org.jdeferred.DonePipe;
 import org.jdeferred.Promise;
 import org.jdeferred.impl.DeferredObject;
@@ -58,34 +45,13 @@ import org.json.JSONException;
 
 import java.io.File;
 import java.io.IOException;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.security.UnrecoverableKeyException;
-import java.security.cert.CertificateException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
-import javax.crypto.BadPaddingException;
-import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.KeyGenerator;
-import javax.crypto.NoSuchPaddingException;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.IvParameterSpec;
 
 import de.tutao.tutanota.push.PushNotificationService;
 import de.tutao.tutanota.push.SseStorage;
-import kotlin.Unit;
 
 public class MainActivity extends Activity {
 
@@ -112,17 +78,13 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         this.setupPushNotifications();
-        CredentialsHandler credentialsHandler = new CredentialsHandler(this);
-        TutanotaCredentials credentials = new TutanotaCredentials(
-                "test@tuta.io",
-                "encPass",
-                "accessToken",
-                "userId"
-        );
-        credentialsHandler.putCredentialsInterop(true, Collections.singletonList(credentials))
-                .then((DonePipe<Object, List<TutanotaCredentials>, Object, Object>) result -> credentialsHandler.getCredentialsInterop())
+        SecureStorage credentialsHandler = new SecureStorage(this);
+        String credentials = "credentials";
+
+        credentialsHandler.putIntoSecureStorageInterop("THIS IS A KEY", credentials)
+                .then((DonePipe<Object, String, Object, Object>) result -> credentialsHandler.getFromSecureStorageInterop("THIS IS A KEY"))
                 .then(result -> {
-                    Log.d(TAG, "CREDENTIALS: " + result.get(0).toJSON());
+                    Log.d(TAG, "CREDENTIALS: " + result);
                 });
 
         webView = new WebView(this);

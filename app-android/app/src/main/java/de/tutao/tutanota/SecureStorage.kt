@@ -1,5 +1,6 @@
 package de.tutao.tutanota
 
+import android.content.Context
 import android.content.SharedPreferences
 import android.hardware.fingerprint.FingerprintManager
 import android.os.Build
@@ -17,7 +18,6 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import org.jdeferred.Promise
 import org.jdeferred.impl.DeferredObject
-import org.json.JSONArray
 import java.math.BigInteger
 import java.security.*
 import java.util.*
@@ -27,51 +27,38 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.IvParameterSpec
 import javax.security.auth.x500.X500Principal
 
-internal class CredentialsHandler(private val mainActivity: MainActivity) {
+typealias StorageId = String
 
-    suspend fun getCredentials(): List<TutanotaCredentials> {
-        val prefString = prefs.getString(CREDENTIALS_PREF_KEY, null)
-                ?: return listOf()
-        val decryptedString = tryDecrypt(Utils.base64ToBytes(prefString)).toString(Charsets.UTF_8)
+internal class SecureStorage(private val mainActivity: MainActivity) {
 
-        val jsonArray = JSONArray(decryptedString)
-        val credentialsArray = mutableListOf<TutanotaCredentials>()
-        for (i in 0 until jsonArray.length()) {
-            credentialsArray.add(TutanotaCredentials.fromJSON(jsonArray.getJSONObject(i)))
-        }
-        return credentialsArray
+    suspend fun getFromSecureStorage(id: StorageId): String? {
+        val prefString = prefs.getString(id, null) ?: return null
+        return tryDecrypt(Utils.base64ToBytes(prefString)).toString(Charsets.UTF_8)
     }
 
-    fun getCredentialsInterop(): Promise<List<TutanotaCredentials>, Any, Any> {
-        val deferred = DeferredObject<List<TutanotaCredentials>, Any, Any>()
+    fun getFromSecureStorageInterop(id: StorageId): Promise<String?, Any, Any> {
+        val deferred = DeferredObject<String?, Any, Any>()
         GlobalScope.launch {
-            val credentials = getCredentials()
+            val credentials = getFromSecureStorage(id)
             deferred.resolve(credentials)
         }
         return deferred
     }
 
-    fun putCredentialsInterop(encrypted: Boolean, credentials: List<TutanotaCredentials>): Promise<Any, Any, Any> {
+    fun putIntoSecureStorageInterop(id: StorageId, value: String): Promise<Any, Any, Any> {
         val deferred = DeferredObject<Any, Any, Any>()
         GlobalScope.launch {
-            putCredentials(encrypted, credentials)
+            putIntoSecureStorage(id, value)
             deferred.resolve(Unit)
         }
         return deferred
     }
 
-    suspend fun putCredentials(encrypted: Boolean, credentials: List<TutanotaCredentials>) {
-        val jsonArray = JSONArray(credentials.map { credential -> credential.toJSON() })
-        val stringToStore = if (encrypted && atLeastMarshmallow()) {
-            bytesToBase64(tryEncrypt(jsonArray.toString().toByteArray()))
-        } else {
-            bytesToBase64(jsonArray.toString().toByteArray())
-        }
-        prefs.edit().putString(CREDENTIALS_PREF_KEY, stringToStore).apply()
+    suspend fun putIntoSecureStorage(id: StorageId, value: String) {
+        prefs.edit().putString(id, bytesToBase64(tryEncrypt(value.toByteArray()))).apply()
     }
 
-    private val prefs: SharedPreferences =
-            PreferenceManager.getDefaultSharedPreferences(this.mainActivity)
+    private val prefs: SharedPreferences = this.mainActivity.getSharedPreferences("SECURE_STORAGE", Context.MODE_PRIVATE)
 
     private fun createKey(): SecretKey {
         // Generate a key to decrypt payment credentials, tokens, etc.
@@ -203,7 +190,6 @@ internal class CredentialsHandler(private val mainActivity: MainActivity) {
 
     companion object {
         private const val KEY_NAME = "TUTCREDENTIALS"
-        private const val CREDENTIALS_PREF_KEY = "credentials"
         private const val SYMMETRIC_KEY_PREF_KEY = "symmetricKey"
     }
 }
