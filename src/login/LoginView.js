@@ -19,6 +19,7 @@ import {windowFacade} from "../misc/WindowFacade"
 import {DeviceType} from "../misc/ClientConstants"
 import {ButtonN} from "../gui/base/ButtonN"
 import {show} from "./RecoverLoginDialog"
+import {NativeAuthenticationError} from "../api/common/error/NativeAuthenticationError"
 
 assertMainOrNode()
 
@@ -326,6 +327,7 @@ export class LoginView {
 
 		} else if (isApp()) {
 			promise = deviceConfig._loadCredentialsFromNative()
+			                      .catch(NativeAuthenticationError, e => {this.helpText = lang.get("nativeAuthFailed_msg")})
 		}
 		promise.then(() => {
 			if ((args.loginWith || args.userId) && !(args.loginWith && deviceConfig.get(args.loginWith) ||

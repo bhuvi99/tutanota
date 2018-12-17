@@ -1,12 +1,13 @@
 // @flow
 import m from "mithril"
-import {assertMainOrNode} from "../api/Env"
+import {assertMainOrNode, isApp} from "../api/Env"
 import {TextField} from "../gui/base/TextField"
 import {lang} from "../misc/LanguageViewModel"
 import {Button} from "../gui/base/Button"
 import {PasswordForm} from "./PasswordForm"
 import {logins} from "../api/main/LoginController"
 import {ColumnWidth, Table} from "../gui/base/Table"
+import {DropDownSelectorN} from "../gui/base/DropDownSelectorN"
 import {Icons} from "../gui/base/icons/Icons"
 import TableLine from "../gui/base/TableLine"
 import {SessionTypeRef} from "../api/entities/sys/Session"
@@ -22,6 +23,8 @@ import {ButtonN, ButtonType} from "../gui/base/ButtonN"
 import {createDropdown} from "../gui/base/DropdownN.js"
 import * as RecoverCodeDialog from "./RecoverCodeDialog"
 import {NotFoundError} from "../api/common/error/RestError"
+import {deviceConfig} from "../misc/DeviceConfig"
+import stream from 'mithril/stream/stream.js'
 
 assertMainOrNode()
 
@@ -90,6 +93,18 @@ export class LoginSettingsViewer implements UpdatableSettingsViewer {
 					m(mailAddress),
 					m(password),
 					m(recoveryCodeField),
+					isApp()
+						? m(DropDownSelectorN, {
+							label: "requireNativeAuth_label",
+							items: [
+								{name: lang.get("activate_action"), value: true},
+								{name: lang.get("deactivate_action"), value: false}
+							],
+							selectedValue: stream(Boolean(deviceConfig._nativeAuthRequired)),
+							selectionChangedHandler: (val) => deviceConfig.setNativeAuthRequired(val),
+							icon: Icons.Edit,
+						})
+						: null,
 					(!logins.getUserController().isOutlookAccount()) ?
 						m(this._secondFactorsForm) : null,
 					m(".h4.mt-l", lang.get('activeSessions_label')),

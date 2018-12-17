@@ -18,6 +18,7 @@ class DeviceConfig {
 	_version: number;
 	_credentials: Credentials[];
 	_theme: ThemeId;
+	_nativeAuthRequired: ?boolean;
 
 	/**
 	 * @param config The config to copy from
@@ -33,7 +34,12 @@ class DeviceConfig {
 		let loadedConfig = loadedConfigString != null ? JSON.parse(loadedConfigString) : null
 		this._theme = (loadedConfig && loadedConfig._theme) ? loadedConfig._theme : 'light'
 		if (loadedConfig && loadedConfig._version === ConfigVersion) {
-			this._credentials = loadedConfig._credentials
+			if (loadedConfig.credentials != null) {
+				this._credentials = loadedConfig._credentials
+			}
+			if (loadedConfig._nativeAuthenticationRequired != null) {
+				this._nativeAuthRequired = loadedConfig._nativeAuthRequired
+			}
 		}
 	}
 
@@ -81,7 +87,7 @@ class DeviceConfig {
 
 	store(): Promise<void> {
 		if (isApp()) {
-			return putIntoSecureStorage(secureStorageKey, JSON.stringify(this._credentials)).then(() => {
+			return this._saveCredentialsToSecureStorage(false).then(() => {
 				localStorage.setItem(LocalStorageKey, JSON.stringify({_version: this._version, _theme: this._theme}))
 			})
 		} else {
@@ -93,6 +99,10 @@ class DeviceConfig {
 			}
 			return Promise.resolve()
 		}
+	}
+
+	_saveCredentialsToSecureStorage(regenerate: boolean): Promise<void> {
+		return putIntoSecureStorage(secureStorageKey, JSON.stringify(this._credentials), Boolean(this._nativeAuthRequired), regenerate)
 	}
 
 	getAll(): Credentials[] {
@@ -116,6 +126,11 @@ class DeviceConfig {
 			// TODO: save only localStorage things here
 			this.store()
 		}
+	}
+
+	setNativeAuthRequired(required: boolean) {
+		this._nativeAuthRequired = required
+		this._saveCredentialsToSecureStorage(true)
 	}
 }
 

@@ -162,8 +162,6 @@ type JsRequestType = 'createMailEditor'
 	| 'showAlertDialog'
 	| 'openMailbox'
 	| 'keyboardSizeChanged'
-	| 'showFingerprintDialog'
-	| 'closeFingerprintDialog'
 
 
 type Callback<T> = (err: ?Error, data?: T) => void

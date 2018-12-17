@@ -20,8 +20,8 @@ export function changeColorTheme(theme: string): Promise<void> {
 	return nativeApp.invokeNative(new Request('changeTheme', [theme]))
 }
 
-export function putIntoSecureStorage(id: string, value: string): Promise<void> {
-	return nativeApp.invokeNative(new Request('putIntoSecureStorage', [id, value]))
+export function putIntoSecureStorage(id: string, value: string, nativeAuthRequired: boolean, regenerateKey: boolean): Promise<void> {
+	return nativeApp.invokeNative(new Request('putIntoSecureStorage', [id, value, nativeAuthRequired, regenerateKey]))
 }
 
 export function getFromSecureStorage(id: string): Promise<?string> {

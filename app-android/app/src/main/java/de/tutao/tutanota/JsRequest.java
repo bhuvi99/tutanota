@@ -6,9 +6,7 @@ public enum JsRequest {
     createMailEditor("createMailEditor"),
     handleBackPress("handleBackPress"),
     showAlertDialog("showAlertDialog"),
-    openMailbox("openMailbox"),
-    showFingerprintDialog("showFingerprintDialog"),
-    closeFingerprintDialog("closeFingerprintDialog");
+    openMailbox("openMailbox");
 
     private final String name;
 

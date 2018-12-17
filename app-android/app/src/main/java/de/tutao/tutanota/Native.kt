@@ -119,13 +119,6 @@ class Native internal constructor(private val activity: MainActivity) {
         }
     }
 
-    val authCallback: AuthCallback = { toShow ->
-        sendRequest(
-                if (toShow) JsRequest.showFingerprintDialog else JsRequest.closeFingerprintDialog,
-                arrayOf()
-        )
-    }
-
     private suspend fun invokeMethod(method: String, args: JSONArray): Any? {
         return when (method) {
             "init" -> {
@@ -189,8 +182,8 @@ class Native internal constructor(private val activity: MainActivity) {
                 val path = args.getString(0)
                 files.putToDownloadFolder(path).toDeferred().await()
             }
-            "putIntoSecureStorage" -> secureStorage.put(args.getString(0), args.getString(1), authCallback)
-            "getFromSecureStorage" -> secureStorage.get(args.getString(0), authCallback)
+            "putIntoSecureStorage" -> secureStorage.put(args.getString(0), args.getString(1), args.getBoolean(2), args.getBoolean(3))
+            "getFromSecureStorage" -> secureStorage.get(args.getString(0))
             else -> throw Exception("unsupported method: $method")
         }
     }

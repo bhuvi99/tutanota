@@ -40,6 +40,7 @@ import {DbError} from "./error/DbError"
 import {CancelledError} from "./error/CancelledError"
 import {RecipientNotResolvedError} from "./error/RecipientNotResolvedError"
 import {FileNotFoundError} from "./error/FileNotFoundError"
+import {NativeAuthenticationError} from "./error/NativeAuthenticationError"
 import {FileOpenError} from "./error/FileOpenError"
 
 export class Request {
@@ -215,6 +216,7 @@ const ErrorNameToType = {
 	"java.io.FileNotFoundException": FileNotFoundError,
 	"de.tutao.tutanota.CryptoError": CryptoError, // Android app exception class name
 	"de.tutao.tutanota.TutCrypto": CryptoError, // iOS app crypto error domain
+	"de.tutao.tutanota.FingerprintException": NativeAuthenticationError,
 	"android.content.ActivityNotFoundException": FileOpenError,
 	"de.tutao.tutanota.TutFileViewer": FileOpenError
 }

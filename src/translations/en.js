@@ -1147,6 +1147,9 @@ module.exports = {
 		"yesterday_label": "yesterday",
 		"yes_label": "Yes",
 		"yourFolders_action": "YOUR FOLDERS",
-		"yourMessage_label": "Your message"
+		"yourMessage_label": "Your message",
+		"laterInvoicingInfo_msg": "Info: Additionally ordered features will not be invoiced directly, but at the beginning of your next subscription month.",
+		"nativeAuthFailed_msg": "No saved credentials have been loaded.",
+		"requireNativeAuth_label": "Require system authentication on startup"
 	}
 }
